@@ -1,0 +1,8 @@
+string tempFile = Path.GetTempFileName();
+using (var writer = File.OpenWrite(tempFile))
+{
+    var client = new RestClient(baseUrl);
+    var request = new RestRequest("Assets/LargeFile.7z");
+    request.ResponseWriter = (responseStream) => responseStream.CopyTo(writer);
+    var response = client.DownloadData(request);
+}

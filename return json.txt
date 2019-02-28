@@ -1,0 +1,11 @@
+var client = new RestClient("http://localhost:22601");
+            //var req = new RestRequest("/Home/GetName", Method.GET);
+            //req.AddParameter("name", "你好");
+          
+            var req = new RestRequest("/Home/GetQrCodeJson", Method.GET);
+            req.AddParameter("a", "你好", ParameterType.RequestBody);
+            //var res = client.Execute(req);
+            //Console.WriteLine(res.Content);
+
+            var res = client.Execute<People>(req);
+            Console.WriteLine(res.Data.Data);

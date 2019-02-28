@@ -1,0 +1,17 @@
+byte[] bytes = Encoding.UTF8.GetBytes("你好");
+var client = new RestClient("http://localhost:38100");
+var req = new RestRequest("/test.ashx", Method.POST);
+req.AddParameter("a", bytes, ParameterType.RequestBody);
+var res = client.Execute(req);
+Console.WriteLine(res.Content);
+
+
+
+============================================
+
+
+var stream = context.Request.InputStream;
+byte[] bytes = new byte[stream.Length];
+stream.Read(bytes, 0, bytes.Length);
+string data = Encoding.UTF8.GetString(bytes);
+context.Response.Write(data+"我是服务器");

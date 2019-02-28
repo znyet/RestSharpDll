@@ -1,0 +1,15 @@
+var client = new RestClient("http://server/");
+client.CookieContainer = new System.Net.CookieContainer();
+
+
+============================================
+
+var client = new RestClient("http://www.qda.com");
+
+//设置cookie
+client.CookieContainer = new System.Net.CookieContainer();
+client.CookieContainer.SetCookies(new Uri("http://www.qda.com"), "Asp.NET_SessionId=anaanan1123ll");
+
+var req = new RestRequest("", Method.GET);
+var res = client.Execute(req);
+Response.Write(res.Content);

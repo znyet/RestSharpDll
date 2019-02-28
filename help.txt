@@ -1,0 +1,358 @@
+https://github.com/restsharp/RestSharp
+
+http://restsharp.org/
+
+https://github.com/restsharp/RestSharp/wiki
+
+===============================================
+var client = new RestClient("http://example.com");
+// client.Authenticator = new HttpBasicAuthenticator(username, password);
+
+var request = new RestRequest("resource/{id}", Method.POST);
+request.AddParameter("name", "value"); // adds to POST or URL querystring based on Method
+request.AddUrlSegment("id", "123"); // replaces matching token in request.Resource
+
+// add parameters for all properties on an object
+request.AddObject(object);
+
+// or just whitelisted properties
+request.AddObject(object, "PersonId", "Name", ...);
+
+// easily add HTTP Headers
+request.AddHeader("header", "value");
+
+// add files to upload (works with compatible verbs)
+request.AddFile("file", path);
+
+// execute the request
+IRestResponse response = client.Execute(request);
+var content = response.Content; // raw content as string
+
+// or automatically deserialize result
+// return content type is sniffed but can be explicitly set via RestClient.AddHandler();
+IRestResponse<Person> response2 = client.Execute<Person>(request);
+var name = response2.Data.Name;
+
+// or download and save file to disk
+client.DownloadData(request).SaveAs(path);
+
+// easy async support
+client.ExecuteAsync(request, response => {
+    Console.WriteLine(response.Content);
+});
+
+// async with deserialization
+var asyncHandle = client.ExecuteAsync<Person>(request, response => {
+    Console.WriteLine(response.Data.Name);
+});
+
+// abort the request on demand
+asyncHandle.Abort();
+
+============================================================================
+
+using RestSharp;
+
+var client = new RestClient();
+client.BaseUrl = new Uri("http://twitter.com");
+client.Authenticator = new HttpBasicAuthenticator("username", "password");
+
+var request = new RestRequest();
+request.Resource = "statuses/friends_timeline.xml";
+
+IRestResponse response = client.Execute(request);
+
+========================================================
+
+// TwilioApi.cs
+public class TwilioApi {
+    const string BaseUrl = "https://api.twilio.com/2008-08-01";
+
+    readonly string _accountSid;
+    readonly string _secretKey;
+
+    public TwilioApi(string accountSid, string secretKey) {
+        _accountSid = accountSid;
+        _secretKey = secretKey;
+    }
+
+    public T Execute<T>(RestRequest request) where T : new()
+    {
+        var client = new RestClient();
+        client.BaseUrl = new System.Uri(BaseUrl);
+        client.Authenticator = new HttpBasicAuthenticator(_accountSid, _secretKey);
+        request.AddParameter("AccountSid", _accountSid, ParameterType.UrlSegment); // used on every request
+        var response = client.Execute<T>(request);
+
+        if (response.ErrorException != null)
+        {
+            const string message = "Error retrieving response.  Check inner details for more info.";
+            var twilioException = new ApplicationException(message, response.ErrorException);
+            throw twilioException;
+        }
+        return response.Data;
+    }
+
+}
+Next, define a class that maps to the data returned by the API and a method to query the API for the details of a specific Call resource.
+
+// Call.cs
+public class Call
+{
+    public string Sid { get; set; }
+    public DateTime DateCreated { get; set; }
+    public DateTime DateUpdated { get; set; }
+    public string CallSegmentSid { get; set; }
+    public string AccountSid { get; set; }
+    public string Called { get; set; }
+    public string Caller { get; set; }
+    public string PhoneNumberSid { get; set; }
+    public int Status { get; set; }
+    public DateTime StartTime { get; set; }
+    public DateTime EndTime { get; set; }
+    public int Duration { get; set; }
+    public decimal Price { get; set; }
+    public int Flags { get; set; }
+}
+
+// TwilioApi.cs, method of TwilioApi class
+public Call GetCall(string callSid) {
+    var request = new RestRequest();
+    request.Resource = "Accounts/{AccountSid}/Calls/{CallSid}";
+    request.RootElement = "Call";
+
+    request.AddParameter("CallSid", callSid, ParameterType.UrlSegment);
+
+    return Execute<Call>(request);
+}
+There¡¯s some magic here that RestSharp takes care of so you don¡¯t have to.
+
+The API returns XML, which is automatically detected and deserialized to the Call object using the default XmlDeserializer.
+By default a RestRequest is made via a GET HTTP request. You can change this by setting the Method property of RestRequest or specifying the method in the constructor when creating an instance (covered below)
+Parameters of type UrlSegment have their values injected into the URL based on a matching token name existing in the Resource property value. AccountSid is set in TwilioApi.Execute because it is common to every request.
+We specify the name of the root element to start deserializing from. In this case, the XML returned is <Response><Call>...</Call></Response> and since the Response element itself does not contain any information relevant to our model, we start the deserializing one step down the tree.
+You can also make POST (and PUT/DELETE/HEAD/OPTIONS) requests:
+
+// TwilioApi.cs, method of TwilioApi class
+public Call InitiateOutboundCall(CallOptions options) {
+    Require.Argument("Caller", options.Caller);
+    Require.Argument("Called", options.Called);
+    Require.Argument("Url", options.Url);
+
+    var request = new RestRequest(Method.POST);
+    request.Resource = "Accounts/{AccountSid}/Calls";
+    request.RootElement = "Calls";
+
+    request.AddParameter("Caller", options.Caller);
+    request.AddParameter("Called", options.Called);
+    request.AddParameter("Url", options.Url);
+
+    if (options.Method.HasValue) request.AddParameter("Method", options.Method);
+    if (options.SendDigits.HasValue()) request.AddParameter("SendDigits", options.SendDigits);
+    if (options.IfMachine.HasValue) request.AddParameter("IfMachine", options.IfMachine.Value);
+    if (options.Timeout.HasValue) request.AddParameter("Timeout", options.Timeout.Value);
+
+    return Execute<Call>(request);
+}
+
+==================================================
+
+application/json - JsonDeserializer
+application/xml - XmlDeserializer
+text/json - JsonDeserializer
+text/xml - XmlDeserializer
+*+json - JsonDeserializer (content types using a Structured Suffix Syntax specifying JSON)
+*+xml - XmlDeserializer (content types using a Structured Suffix Syntax specifying XML)
+@*@ - XmlDeserializer (all other content types not specified)
+The default deserializers attempt to remove the pain of having to parse XML or JSON. This is done by mapping to plain-ol' CLR objects. Your classes define how you want the returned data to be deserialized. Instead of traversing the data and searching for a matching property in your class, RestSharp uses your class as the starting point, looping through each publicly-accessible, writable property and searching for a corresponding element in the data returned.
+
+NOTE: DataAnnotation/DataMember are NOT supported by the default RestSharp Deserializers. In order to use those, you must implement and register your own IDeserializer that wraps a deserialization library compatible with those attributes.
+
+For example, this XML and JSON...
+
+<Person>
+    <Name>John</Name>
+    <Id>28</Id>
+</Person>
+{
+    "Name": "John",
+    "Id": 28
+}
+...would map to the same Person class:
+
+public class Person {
+    public string Name { get; set; }
+    public int Id { get; set; }
+}
+Supported Property Types
+
+XmlDeserializer
+
+Primitives (int, short, long, etc)
+Decimal
+DateTime
+String
+Guid
+List<T>
+Nested classes
+Nullable versions of the above listed types
+JsonDeserializer
+
+Primitives
+Decimal
+DateTime
+String
+Guid
+List
+Dictionary
+Nested classes
+Nullable versions of the above listed types
+Name matching
+
+XmlDeserializer
+
+When searching data for a matching element, the default XML deserializer will look for elements and attributes in the following order:
+
+Element with exact name match
+Element with name matching lower-cased property name
+Element with name matching camel-cased property name
+(Special case, see below)
+Element with underscores and dashes removed from name
+Attribute with exact name match
+Attribute with name matching lower-cased property name
+Attribute with name matching camel-cased property name
+Attribute with underscores and dashes removed from name
+It is possible to use the @DeserializeAs@ attribute to change the name that will be searched in the property. This is useful if you want to name the property differently than its name in the XML.
+
+Example usage:
+
+[DeserializeAs(Name = "forecast_information")]
+public ForecastInformation Forecast { get; set; }
+There is one special case where the value of an element will be returned. Only an example can explain it.
+
+If the XML returned is like this:
+
+<Response>Hello world</Response>
+There's no way to directly represent that in a C# class:
+
+public class Response {
+}
+You need something to hold the value of the Response element. In this case, add a property called Value and it will be populated:
+
+public class Response {
+     public string Value { get; set; }
+}
+This condition is checked for between searching for matching element names and matching attribute names.
+
+JsonDeserializer
+
+When searching data for a matching element, the default JSON deserializer will look for elements in the following order:
+
+Exact name match
+Camel-cased version of property name
+Lower-cased version of property name
+Property name with underscores added (e.g. ProductId -> Product_Id)
+Lower-cased version of "underscored" name (e.g. Product_id -> product_id)
+As for the XML deserializer, it is possible to change how a property is mapped to the JSON key by setting a DeserializeAs attribute for the property.
+
+Example usage
+
+[DeserializeAs(Name = "forecast_information")]
+public ForecastInformation Forecast { get; set; }
+List/Dictionary Handling
+
+XmlDeserializer
+
+Two different types of lists are handled: parentless (inline) and regular (nested). For instance, both of the following XML structures...
+
+<?xml version="1.0" encoding="utf-8" ?>
+<InlineListSample>
+    <image src="1.gif">value1</image>
+    <image src="2.gif">value2</image>
+    <image src="3.gif">value3</image>
+    <image src="4.gif">value4</image>
+</InlineListSample>
+
+<?xml version="1.0" encoding="utf-8" ?>
+<NestedListSample>
+   <images>
+      <image src="1.gif">value1</image>
+      <image src="2.gif">value2</image>
+      <image src="3.gif">value3</image>
+      <image src="4.gif">value4</image>
+    </images>
+</NestedListSample>
+...will map to the following C# schema:
+
+public class ListSample
+{
+    public List<Image> Images { get; set; }
+}
+
+public class Image
+{
+    public string Src { get; set; }
+    public string Value { get; set; }
+}
+If by chance both element structures existed in the same document at the relevant point in the hierarchy, parented/nested/regular lists take priority.
+
+JsonDeserializer
+
+RestSharp supports both List and Dictionary when mapping to JSON arrays and dictionaries.
+
+Date Handling
+
+XmlDeserializer
+
+If RestRequest.DateFormat is specified the value is retrieved using DateTime.ParseExact using your specified format string.
+
+If RestRequest.DateFormat is not specified, DateTime.Parse is used to evaluate the element value. If are dealing with a format that is not parsable with that method, change your property type to String and evaluate/process as need after retrieval.
+
+JsonDeserializer
+
+If your request does not specify a date format via RestRequest.DateFormat RestSharp attempts to deserialize your DateTime property values using the following format strings (in this order, with InvariantCulture);
+
+"u"
+"s"
+"yyyy'-'MM'-'dd'T'HH':'mm':'ss'Z'"
+"yyyy-MM-ddTHH:mm:ssZ"
+"yyyy-MM-dd HH:mm:ssZ"
+"yyyy-MM-ddTHH:mm:ss"
+"yyyy-MM-ddTHH:mm:sszzzzzz"
+The JsonSerializer supports the following JSON date styles by default. These are ignored if you specify RestRequest.DateFormat.
+
+ISO - 1910-09-25T09:30:25Z
+Javascript Date Objects - new Date(-1870352975000)
+Unix Timestamps - 1435206458
+For JS date objects, the milliseconds are extracted and added to the Javascript epoch time and then adjusted for the time zone if specified.
+
+Customizing
+
+Overriding the default deserializers
+
+You can write your own deserializers to handle content. The steps are as follows:
+
+Create a class and implement IDeserializer
+Register a handler and associated content type using RestClient.AddHandler(contentType, IDeserializer). If the content type is already registered, it will be overridden by your specified handler. You can remove all registered handlers by calling RestClient.ClearHandlers() or just one by calling RestClient.RemoveHandler(contentType).
+Overriding the default serializers
+
+When making requests with XML or JSON request bodies, you can specify your own implementation of ISerializer to use.
+
+var request = new RestRequest();
+request.RequestFormat = DataFormat.Xml;
+request.XmlSerializer = new SuperXmlSerializer(); // implements ISerializer
+request.AddBody(person); // object serialized to XML using your custom serializer;
+Overriding JsonSerializationStrategy
+
+When trying to support different casing strategies in C# and JSON (e. g. PascalCase in C# code and snake_case in JSON) you will run in trouble while serializing. Overriding MapClrMemberNameToJsonFieldName might help:
+
+class SnakeJsonSerializerStrategy : PocoJsonSerializerStrategy
+{
+    protected override string MapClrMemberNameToJsonFieldName(string clrPropertyName)
+    {
+        //PascalCase to snake_case
+        return string.Concat(clrPropertyName.Select((x, i) => i > 0 && char.IsUpper(x) ? "_" + char.ToLower(x).ToString() : x.ToString()));
+    }
+}
+
+==================================================
